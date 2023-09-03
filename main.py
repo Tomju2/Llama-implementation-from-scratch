@@ -66,6 +66,18 @@ def get_batches(data, split, config):
     y = y.to(device)
     return x, y
 
+def get_rotary_matrix(context_window, embedding_dim):
+    R = torch.zeros((context_window, embedding_dim, embedding_dim), requires_grad=False)
+    for position in range(context_window):
+        for i in range(embedding_dim//2):
+            theta = 10000. ** (-2.*(i - 1) / embedding_dim)
+            m_theta = position * theta
+            R[position, 2*i,2*i] = np.cos(m_theta)
+            R[position, 2*i,2*i+1] = - np.sin(m_theta)
+            R[position, 2*i+1,2*i] = np.sin(m_theta)
+            R[position, 2*i+1,2*i+1] = np.cos(m_theta)
+    return R
+
 
 @torch.no_grad()  # don't compute gradients for this function
 def evaluate_loss(model, config):
@@ -142,7 +154,7 @@ dataset = dataset.to(device)
 torch.Size([1115394])
 
 # Load model
-model = SimpleModel(MASTER_CONFIG)
+model = RopeModel(MASTER_CONFIG)
 model = model.to(device)
 
 xs, ys = get_batches(dataset, 'train', MASTER_CONFIG)
