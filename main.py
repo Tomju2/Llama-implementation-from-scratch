@@ -5,29 +5,24 @@ import numpy as np
 from matplotlib import pyplot as plt
 import time
 import pandas as pd
+import yaml
 from models.models import *
 
+# set Cuda device
 if (not torch.cuda.is_available()):
     print("gpu not available")
     exit()
 
 device = torch.device("cuda:0")
 
-# Load data
-lines = open("./data/tinyshakespeare/input.txt", "r").read()
-vocab = sorted(list(set(lines)))
-itos = {i: ch for i, ch in enumerate(vocab)}
-stoi = {ch: i for i, ch in enumerate(vocab)}
-
-MASTER_CONFIG = {
-    "vocab_size": len(vocab),
-    "batch_size": 32,
-    "context_window": 16,
-    "d_model": 128,
-    "epochs": 1000,
-    "log_interval": 10,
-}
-
+def read_yaml():
+    """
+    reading Yaml file
+    :return:
+    """
+    with open("config.yaml") as f:
+        MASTER_CONFIG = yaml.safe_load(f)
+    return MASTER_CONFIG
 
 # simple tokenization by characters
 def encode(s):
@@ -38,7 +33,12 @@ def decode(l):
     return ''.join([itos[i] for i in l])
 
 
-def get_batches(data, split, batch_size, context_window, config=MASTER_CONFIG):
+def get_batches(data, split, config):
+
+    # Load cfg
+    context_window = config["context_window"]
+    batch_size = config["batch_size"]
+
     train = data[:int(.8 * len(data))]
     val = data[int(.8 * len(data)): int(.9 * len(data))]
     test = data[int(.9 * len(data)):]
@@ -61,13 +61,13 @@ def get_batches(data, split, batch_size, context_window, config=MASTER_CONFIG):
 
 
 @torch.no_grad()  # don't compute gradients for this function
-def evaluate_loss(model, config=MASTER_CONFIG):
+def evaluate_loss(model, config):
     out = {}
     model.eval()
     for split in ["train", "val"]:
         losses = []
         for _ in range(10):
-            xb, yb = get_batches(dataset, split, config['batch_size'], config['context_window'])
+            xb, yb = get_batches(dataset, split, config)
             _, loss = model(xb, yb)
             losses.append(loss.item())
         out[split] = np.mean(losses)
@@ -75,13 +75,12 @@ def evaluate_loss(model, config=MASTER_CONFIG):
     return out
 
 
-def train(model, optimizer, scheduler=None, config=MASTER_CONFIG, print_logs=False):
+def train(model, optimizer, scheduler=None, config=None, print_logs=False):
     losses = []
     start_time = time.time()
     for epoch in range(config['epochs']):
-        optimizer.zero_grad()
 
-        xs, ys = get_batches(dataset, 'train', config['batch_size'], config['context_window'])
+        xs, ys = get_batches(dataset, 'train', config)
         logits, loss = model(xs, targets=ys)
         loss.backward()
         optimizer.step()
@@ -91,7 +90,7 @@ def train(model, optimizer, scheduler=None, config=MASTER_CONFIG, print_logs=Fal
 
         if epoch % config['log_interval'] == 0:
             batch_time = time.time() - start_time
-            x = evaluate_loss(model)
+            x = evaluate_loss(model, config)
             losses += [x]
             if print_logs:
                 print(
@@ -105,7 +104,7 @@ def train(model, optimizer, scheduler=None, config=MASTER_CONFIG, print_logs=Fal
     return pd.DataFrame(losses)
 
 
-def generate(model, config=MASTER_CONFIG, max_new_tokens=30):
+def generate(model, config, max_new_tokens=30):
     idx = torch.zeros(5, 1).long()
     idx = idx.to(device)
 
@@ -113,9 +112,7 @@ def generate(model, config=MASTER_CONFIG, max_new_tokens=30):
         # call the model
         logits = model(idx[:, -config['context_window']:])
 
-        last_time_step_logits = logits[
-                                :, -1, :
-                                ]  # all the batches (1), last time step, all the logits
+        last_time_step_logits = logits[:, -1, :]  # all the batches (1), last time step, all the logits
         p = F.softmax(last_time_step_logits, dim=-1)  # softmax to get probabilities
         idx_next = torch.multinomial(
             p, num_samples=1
@@ -123,6 +120,14 @@ def generate(model, config=MASTER_CONFIG, max_new_tokens=30):
         idx = torch.cat([idx, idx_next], dim=-1)  # append to the sequence
     return [decode(x) for x in idx.tolist()]
 
+# Load data
+lines = open("./data/tinyshakespeare/input.txt", "r").read()
+vocab = sorted(list(set(lines)))
+itos = {i: ch for i, ch in enumerate(vocab)}
+stoi = {ch: i for i, ch in enumerate(vocab)}
+
+MASTER_CONFIG = read_yaml()
+MASTER_CONFIG["vocab_size"] = len(vocab)
 
 # load dataset
 dataset = torch.tensor(encode(lines), dtype=torch.int8)
@@ -133,13 +138,13 @@ torch.Size([1115394])
 model = SimpleModel(MASTER_CONFIG)
 model = model.to(device)
 
-xs, ys = get_batches(dataset, 'train', MASTER_CONFIG['batch_size'], MASTER_CONFIG['context_window'])
+xs, ys = get_batches(dataset, 'train', MASTER_CONFIG)
 logits, loss = model(xs, ys)
 
 optimizer = torch.optim.Adam(model.parameters(), )
 
-train_loss = train(model, optimizer)
-inference_data = generate(model)
+train_loss = train(model, optimizer, config=MASTER_CONFIG)
+inference_data = generate(model,MASTER_CONFIG)
 print(inference_data)
 
 plt.plot(train_loss)
