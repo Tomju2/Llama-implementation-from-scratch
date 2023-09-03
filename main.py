@@ -18,7 +18,7 @@ if (not torch.cuda.is_available()):
     exit()
 else:
     device = torch.device("cuda:0")
-    logger.debug("GPU lodaded", device)
+    logger.debug("GPU lodaded" + str(device))
 
 def read_yaml():
     """
@@ -86,6 +86,7 @@ def train(model, optimizer, scheduler=None, config=None, print_logs=False):
     losses = []
     start_time = time.time()
     for epoch in range(config['epochs']):
+        optimizer.zero_grad()
 
         xs, ys = get_batches(dataset, 'train', config)
         logits, loss = model(xs, targets=ys)
