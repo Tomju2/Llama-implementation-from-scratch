@@ -1,3 +1,5 @@
+import logging
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -6,28 +8,33 @@ from matplotlib import pyplot as plt
 import time
 import pandas as pd
 import yaml
+from loguru import logger
+
 from models.models import *
 
 # set Cuda device
 if (not torch.cuda.is_available()):
-    print("gpu not available")
+    logger.error("GPU not Available")
     exit()
-
-device = torch.device("cuda:0")
+else:
+    device = torch.device("cuda:0")
+    logger.debug("GPU lodaded", device)
 
 def read_yaml():
     """
-    reading Yaml file
-    :return:
+    reading Yaml config file
+    :return: config dictionary
     """
-    with open("config.yaml") as f:
-        MASTER_CONFIG = yaml.safe_load(f)
-    return MASTER_CONFIG
+    try:
+        with open("config.yaml") as f:
+            MASTER_CONFIG = yaml.safe_load(f)
+        return MASTER_CONFIG
+    except FileNotFoundError:
+        logger.error("Config file not found, check if config.yaml exists in root")
 
 # simple tokenization by characters
 def encode(s):
     return [stoi[ch] for ch in s]
-
 
 def decode(l):
     return ''.join([itos[i] for i in l])
@@ -93,14 +100,13 @@ def train(model, optimizer, scheduler=None, config=None, print_logs=False):
             x = evaluate_loss(model, config)
             losses += [x]
             if print_logs:
-                print(
-                    f"Epoch {epoch} | val loss {x['val']:.3f} | Time {batch_time:.3f} | ETA in seconds {batch_time * (config['epochs'] - epoch) / config['log_interval'] :.3f}")
+                logger.info(f"Epoch {epoch} | val loss {x['val']:.3f} | Time {batch_time:.3f} | ETA in seconds {batch_time * (config['epochs'] - epoch) / config['log_interval'] :.3f}")
             start_time = time.time()
 
             if scheduler:
-                print("lr: ", scheduler.get_lr())
+                logger.info("lr: ", scheduler.get_lr())
 
-    print("validation loss: ", losses[-1]['val'])
+    logger.info("validation loss: " + str(losses[-1]['val']))
     return pd.DataFrame(losses)
 
 
@@ -129,12 +135,12 @@ stoi = {ch: i for i, ch in enumerate(vocab)}
 MASTER_CONFIG = read_yaml()
 MASTER_CONFIG["vocab_size"] = len(vocab)
 
-# load dataset
+# Create dataset
 dataset = torch.tensor(encode(lines), dtype=torch.int8)
 dataset = dataset.to(device)
 torch.Size([1115394])
 
-# load model
+# Load model
 model = SimpleModel(MASTER_CONFIG)
 model = model.to(device)
 
@@ -142,10 +148,11 @@ xs, ys = get_batches(dataset, 'train', MASTER_CONFIG)
 logits, loss = model(xs, ys)
 
 optimizer = torch.optim.Adam(model.parameters(), )
-
 train_loss = train(model, optimizer, config=MASTER_CONFIG)
+
+# Test model
 inference_data = generate(model,MASTER_CONFIG)
-print(inference_data)
+logger.info("Inference data: " + str(inference_data))
 
 plt.plot(train_loss)
 plt.show()

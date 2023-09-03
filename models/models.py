@@ -1,4 +1,5 @@
 import torch
+from loguru import logger
 from torch import nn
 from torch.nn import functional as F
 
@@ -14,7 +15,7 @@ class SimpleModel(nn.Module):
             nn.Linear(config['d_model'], config['vocab_size']),
         )
 
-        print("model params:", sum([m.numel() for m in self.parameters()]))
+        logger.info("model params: " + str(sum([m.numel() for m in self.parameters()])))
 
     def forward(self, idx, targets=None):
         x = self.embedding(idx)
